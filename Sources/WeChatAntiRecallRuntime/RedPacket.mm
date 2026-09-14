@@ -2,6 +2,7 @@
 #import <UserNotifications/UserNotifications.h>
 #include <atomic>
 #include <cstring>
+#include <cctype>
 #include <ctime>
 #include <deque>
 #include <dlfcn.h>
@@ -68,6 +69,18 @@
 namespace red_packet {
 struct Packet { std::string id, sender; bool senderDisplay = false; };
 
+// Raw WeChat identifiers (wxid_*, custom accounts, phone numbers) consist of
+// ASCII [A-Za-z0-9_-]; rendered nicknames virtually always contain at least one
+// other character (CJK, emoji, whitespace). Pure-ID senders fall back to the
+// generic notification body instead of surfacing a raw ID.
+bool senderLooksDisplayable(const std::string &name) {
+    if (name.empty()) return false;
+    for (const unsigned char c : name) {
+        if (!(std::isalnum(c) != 0 || c == '_' || c == '-')) return true;
+    }
+    return false;
+}
+
 std::optional<Packet> parse(const std::string &raw) {
     if (raw.empty() || raw.size() > 65536 || raw.find('\0') != std::string::npos ||
         raw.find("<!DOCTYPE") != std::string::npos || raw.find("<!ENTITY") != std::string::npos) return {};
@@ -104,9 +117,9 @@ std::optional<Packet> parse(const std::string &raw) {
             if (!sender.empty() && sender != prefix) return {};
             sender = prefix;
         }
-        // The group prefix is the display name WeChat renders in the conversation;
-        // a direct-chat fromusername may be a raw wxid and must not be shown.
-        return Packet{sendID.UTF8String, sender, !prefix.empty()};
+        // A group prefix (or direct-chat fromusername) can still be a raw WeChat
+        // ID, so displayability is decided by the identifier heuristic above.
+        return Packet{sendID.UTF8String, sender, senderLooksDisplayable(sender)};
     }
 }
 

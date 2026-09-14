@@ -85,7 +85,9 @@ final class RedPacketTests: XCTestCase {
         let enabled = try RedPacketOptions(["on", "--delay-ms", "0", "--app", "/tmp/WeChat.app"])
         XCTAssertEqual(enabled.enabled, true)
         XCTAssertEqual(enabled.delayMilliseconds, 0)
-        XCTAssertNil(enabled.notifyOnly)
+        // Explicit false (not nil) is what lets "on --delay-ms" switch a
+        // notify-only configuration back to automatic grabbing.
+        XCTAssertEqual(enabled.notifyOnly, false)
         XCTAssertEqual(enabled.appPath, "/tmp/WeChat.app")
         let notifyOnly = try RedPacketOptions(["on", "--notify-only", "--app", "/tmp/WeChat.app"])
         XCTAssertEqual(notifyOnly.enabled, true)
