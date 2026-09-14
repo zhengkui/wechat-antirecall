@@ -3,9 +3,26 @@ import Foundation
 struct RedPacketSettings: Codable, Equatable {
     static let preferenceKey = "WeChatAntiRecall_RedPacket"
     static let supportedBuilds: Set<String> = ["269624", "269628", "270090"]
-    static let runtimeMarker = "WeChatAntiRecallRedPacket:3"
+    static let runtimeMarker = "WeChatAntiRecallRedPacket:4"
     var enabled = false
     var delayMilliseconds = 500
+    // true = 仅提醒：检测到红包只弹系统通知，不自动领取。
+    var notifyOnly = false
+
+    init(enabled: Bool = false, delayMilliseconds: Int = 500, notifyOnly: Bool = false) {
+        self.enabled = enabled
+        self.delayMilliseconds = delayMilliseconds
+        self.notifyOnly = notifyOnly
+    }
+
+    // Older preference files predate notifyOnly; treat the missing key as the
+    // legacy auto-grab mode instead of failing the load.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        delayMilliseconds = try container.decodeIfPresent(Int.self, forKey: .delayMilliseconds) ?? 500
+        notifyOnly = try container.decodeIfPresent(Bool.self, forKey: .notifyOnly) ?? false
+    }
 
     func validate() throws {
         guard (0...5000).contains(delayMilliseconds) else {
@@ -17,6 +34,7 @@ struct RedPacketSettings: Codable, Equatable {
 struct RedPacketOptions {
     let enabled: Bool?
     let delayMilliseconds: Int?
+    let notifyOnly: Bool?
     let appPath: String
     let json: Bool
 
@@ -26,6 +44,7 @@ struct RedPacketOptions {
         }
         var app = "/Applications/WeChat.app"
         var delay: Int?
+        var notifyOnly = false
         var jsonOutput = false
         var seen: Set<String> = []
         var index = 1
@@ -47,6 +66,8 @@ struct RedPacketOptions {
                     }
                     delay = value
                 }
+            } else if flag == "--notify-only" {
+                notifyOnly = true
             } else {
                 throw ToolError.usage("未知参数：\(flag)")
             }
@@ -55,8 +76,15 @@ struct RedPacketOptions {
         guard action == "on" || delay == nil else {
             throw ToolError.usage("--delay-ms 仅用于 red-packet on。")
         }
+        guard action == "on" || !notifyOnly else {
+            throw ToolError.usage("--notify-only 仅用于 red-packet on。")
+        }
+        if action == "on" && notifyOnly && delay != nil {
+            throw ToolError.usage("仅提醒模式没有等待时间，--notify-only 不能与 --delay-ms 一起使用。")
+        }
         enabled = action == "get" ? nil : action == "on"
         delayMilliseconds = delay
+        self.notifyOnly = action == "on" ? notifyOnly : nil
         appPath = app
         json = jsonOutput
     }
@@ -79,7 +107,8 @@ struct RedPacketPreferenceStore {
         var preferences = try read()
         preferences[RedPacketSettings.preferenceKey] = [
             "enabled": settings.enabled,
-            "delayMilliseconds": settings.delayMilliseconds
+            "delayMilliseconds": settings.delayMilliseconds,
+            "notifyOnly": settings.notifyOnly
         ]
         let data = try PropertyListSerialization.data(fromPropertyList: preferences, format: .binary, options: 0)
         try FileManager.default.createDirectory(at: preferenceFileURL.deletingLastPathComponent(), withIntermediateDirectories: true)

@@ -85,12 +85,26 @@ final class RedPacketTests: XCTestCase {
         let enabled = try RedPacketOptions(["on", "--delay-ms", "0", "--app", "/tmp/WeChat.app"])
         XCTAssertEqual(enabled.enabled, true)
         XCTAssertEqual(enabled.delayMilliseconds, 0)
+        XCTAssertNil(enabled.notifyOnly)
         XCTAssertEqual(enabled.appPath, "/tmp/WeChat.app")
+        let notifyOnly = try RedPacketOptions(["on", "--notify-only", "--app", "/tmp/WeChat.app"])
+        XCTAssertEqual(notifyOnly.enabled, true)
+        XCTAssertEqual(notifyOnly.notifyOnly, true)
+        XCTAssertNil(notifyOnly.delayMilliseconds)
         for args in [[], ["enable"], ["get", "--delay-ms", "500"], ["off", "--delay-ms", "500"],
                      ["on", "--delay-ms", "-1"], ["on", "--delay-ms", "5001"], ["on", "--delay-ms", "1.5"],
-                     ["on", "--app"], ["get", "--json", "--json"], ["on", "--unknown"]] {
+                     ["on", "--app"], ["get", "--json", "--json"], ["on", "--unknown"],
+                     ["on", "--notify-only", "--delay-ms", "500"], ["get", "--notify-only"],
+                     ["off", "--notify-only"]] {
             XCTAssertThrowsError(try RedPacketOptions(args), "\(args)")
         }
+    }
+
+    func testRuntimeMarkerMatchesRuntimeExport() {
+        XCTAssertEqual(String(cString: wechat_antirecall_red_packet_runtime_version()),
+                       RedPacketSettings.runtimeMarker)
+        XCTAssertTrue(RedPacketSettings.runtimeMarker.hasSuffix(":4"),
+                      "notify-only needs a fresh runtime; the marker must move past :3")
     }
 
     func testPreferenceRoundTripPreservesWeChatSettings() throws {
@@ -101,11 +115,13 @@ final class RedPacketTests: XCTestCase {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let existing: [String: Any] = ["Unrelated": "preserve", "WeChatAntiRecall_RevokeTipPhrase": "custom"]
         try PropertyListSerialization.data(fromPropertyList: existing, format: .binary, options: 0).write(to: store.preferenceFileURL)
-        try store.save(RedPacketSettings(enabled: true, delayMilliseconds: 300))
-        XCTAssertEqual(try store.load(), RedPacketSettings(enabled: true, delayMilliseconds: 300))
+        try store.save(RedPacketSettings(enabled: true, delayMilliseconds: 300, notifyOnly: true))
+        XCTAssertEqual(try store.load(), RedPacketSettings(enabled: true, delayMilliseconds: 300, notifyOnly: true))
         let saved = try XCTUnwrap(PropertyListSerialization.propertyList(from: Data(contentsOf: store.preferenceFileURL), format: nil) as? [String: Any])
         XCTAssertEqual(saved["Unrelated"] as? String, "preserve")
         XCTAssertEqual(saved["WeChatAntiRecall_RevokeTipPhrase"] as? String, "custom")
+        XCTAssertEqual(saved["WeChatAntiRecall_RedPacket"] as? [String: Any],
+                       ["enabled": true, "delayMilliseconds": 300, "notifyOnly": true])
         let before = try Data(contentsOf: store.preferenceFileURL)
         XCTAssertThrowsError(try store.save(RedPacketSettings(enabled: true, delayMilliseconds: 9999)))
         XCTAssertEqual(try Data(contentsOf: store.preferenceFileURL), before)
@@ -113,5 +129,17 @@ final class RedPacketTests: XCTestCase {
         XCTAssertThrowsError(try store.load())
         XCTAssertThrowsError(try store.save(RedPacketSettings()))
         XCTAssertEqual(try String(contentsOf: store.preferenceFileURL), "broken plist")
+    }
+
+    func testLegacyPreferenceWithoutNotifyOnlyLoadsAsAutoGrabMode() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = RedPacketPreferenceStore(preferenceFileURL: folder.appendingPathComponent("preferences.plist"))
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        // Settings written by the :3 runtime era carry no notifyOnly key.
+        let legacy: [String: Any] = ["WeChatAntiRecall_RedPacket": ["enabled": true, "delayMilliseconds": 250]]
+        try PropertyListSerialization.data(fromPropertyList: legacy, format: .binary, options: 0)
+            .write(to: store.preferenceFileURL)
+        XCTAssertEqual(try store.load(), RedPacketSettings(enabled: true, delayMilliseconds: 250, notifyOnly: false))
     }
 }
