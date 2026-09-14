@@ -15,12 +15,12 @@ struct RedPacketSettings: Codable, Equatable {
         self.notifyOnly = notifyOnly
     }
 
-    // Older preference files predate notifyOnly; treat the missing key as the
-    // legacy auto-grab mode instead of failing the load.
+    // enabled/delayMilliseconds stay required, matching the runtime loader which
+    // rejects incomplete dictionaries; only notifyOnly defaults for legacy files.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
-        delayMilliseconds = try container.decodeIfPresent(Int.self, forKey: .delayMilliseconds) ?? 500
+        enabled = try container.decode(Bool.self, forKey: .enabled)
+        delayMilliseconds = try container.decode(Int.self, forKey: .delayMilliseconds)
         notifyOnly = try container.decodeIfPresent(Bool.self, forKey: .notifyOnly) ?? false
     }
 

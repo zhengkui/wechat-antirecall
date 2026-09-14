@@ -141,5 +141,10 @@ final class RedPacketTests: XCTestCase {
         try PropertyListSerialization.data(fromPropertyList: legacy, format: .binary, options: 0)
             .write(to: store.preferenceFileURL)
         XCTAssertEqual(try store.load(), RedPacketSettings(enabled: true, delayMilliseconds: 250, notifyOnly: false))
+        // Missing required keys are rejected, matching the runtime loader.
+        let incomplete: [String: Any] = ["WeChatAntiRecall_RedPacket": ["enabled": true]]
+        try PropertyListSerialization.data(fromPropertyList: incomplete, format: .binary, options: 0)
+            .write(to: store.preferenceFileURL)
+        XCTAssertThrowsError(try store.load())
     }
 }

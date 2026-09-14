@@ -71,7 +71,12 @@ struct RedPacketView: View {
                     SectionLabel(text: "工作模式")
                     Picker("红包模式", selection: Binding(
                         get: { controller.mode },
-                        set: { newMode in Task { await controller.setMode(newMode, appPath: state.appPath) } }
+                        set: { newMode in
+                            // Without the runtime component only turning off is
+                            // reachable, mirroring the original toggle semantics.
+                            guard newMode == .off || (runtimeInstalled && controller.supported) else { return }
+                            Task { await controller.setMode(newMode, appPath: state.appPath) }
+                        }
                     )) {
                         ForEach(RedPacketController.Mode.allCases) { mode in
                             Text(mode.title).tag(mode)

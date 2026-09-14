@@ -66,7 +66,7 @@
 @end
 
 namespace red_packet {
-struct Packet { std::string id, sender; };
+struct Packet { std::string id, sender; bool senderDisplay = false; };
 
 std::optional<Packet> parse(const std::string &raw) {
     if (raw.empty() || raw.size() > 65536 || raw.find('\0') != std::string::npos ||
@@ -104,7 +104,9 @@ std::optional<Packet> parse(const std::string &raw) {
             if (!sender.empty() && sender != prefix) return {};
             sender = prefix;
         }
-        return Packet{sendID.UTF8String, sender};
+        // The group prefix is the display name WeChat renders in the conversation;
+        // a direct-chat fromusername may be a raw wxid and must not be shown.
+        return Packet{sendID.UTF8String, sender, !prefix.empty()};
     }
 }
 
@@ -173,7 +175,7 @@ Ledger &notifyLedger() { static Ledger value; return value; }
 // banners appear regardless of the chat's mute state (mute only gates WeChat's
 // own banner decision, which this path never consults). Best effort: an
 // unavailable center or denied authorization degrades to the os_log status.
-void notifyRedPacket(const std::string &sender) {
+void notifyRedPacket(const std::string &sender, bool senderDisplay) {
     @autoreleasepool {
         UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
         if (!center) {
@@ -182,7 +184,9 @@ void notifyRedPacket(const std::string &sender) {
         }
         UNMutableNotificationContent *content = [[UNMutableNotificationContent alloc] init];
         content.title = @"微信红包提醒";
-        NSString *who = sender.empty() ? @"" : ([NSString stringWithUTF8String:sender.c_str()] ?: @"");
+        NSString *who = (senderDisplay && !sender.empty())
+            ? ([NSString stringWithUTF8String:sender.c_str()] ?: @"")
+            : @"";
         content.body = who.length ? [NSString stringWithFormat:@"%@ 发来一个红包，请及时查看。", who]
                                   : @"收到一个红包，请及时查看。";
         content.sound = [UNNotificationSound defaultSound];
@@ -543,16 +547,26 @@ void wechat_antirecall_red_packet_observe(void *message, int mode) {
         if (!packet) return;
         if (settings().notifyOnly) {
             // Notify-only: never touch the payment service or its task queue.
-            // Re-check mode and freshness on the main queue so a mid-flight
-            // settings change or stale message cannot alert.
-            auto sender = packet->sender;
-            auto id = packet->id;
+            // Re-check everything on the main queue so a mid-flight settings
+            // change or stale message cannot alert, and apply the same account
+            // filters as Engine::enqueue so synced self-sent packets stay silent.
+            auto packetId = packet->id;
+            auto senderName = packet->sender;
+            auto senderNamed = packet->senderDisplay;
+            auto packetFrom = *from;
+            auto packetTo = *to;
             dispatch_async(dispatch_get_main_queue(), ^{
+                const auto current = settings();
+                if (!current.enabled || !current.notifyOnly) return;
                 const auto now = static_cast<uint64_t>(std::time(nullptr));
-                if (!enabled.load() || !settings().notifyOnly) return;
                 if (!fresh(created, activated.load(), now)) return;
-                if (!notifyLedger().reserve(id, now)) return;
-                notifyRedPacket(sender);
+                Api *api = activeApi.load();
+                if (!api) return;
+                const auto account = api->account();
+                if (account.empty() || packetFrom.empty() || packetTo != account ||
+                    packetFrom == account || senderName == account) return;
+                if (!notifyLedger().reserve(packetId, now)) return;
+                notifyRedPacket(senderName, senderNamed);
             });
             return;
         }
