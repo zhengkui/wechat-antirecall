@@ -1,4 +1,5 @@
 import XCTest
+import Foundation
 import WeChatAntiRecallRuntime
 @testable import WeChatAntiRecall
 
@@ -122,8 +123,10 @@ final class RedPacketTests: XCTestCase {
         let saved = try XCTUnwrap(PropertyListSerialization.propertyList(from: Data(contentsOf: store.preferenceFileURL), format: nil) as? [String: Any])
         XCTAssertEqual(saved["Unrelated"] as? String, "preserve")
         XCTAssertEqual(saved["WeChatAntiRecall_RevokeTipPhrase"] as? String, "custom")
-        XCTAssertEqual(saved["WeChatAntiRecall_RedPacket"] as? [String: Any],
-                       ["enabled": true, "delayMilliseconds": 300, "notifyOnly": true])
+        let packet = try XCTUnwrap(saved["WeChatAntiRecall_RedPacket"] as? [String: Any])
+        XCTAssertEqual(packet["enabled"] as? Bool, true)
+        XCTAssertEqual(packet["delayMilliseconds"] as? Int, 300)
+        XCTAssertEqual(packet["notifyOnly"] as? Bool, true)
         let before = try Data(contentsOf: store.preferenceFileURL)
         XCTAssertThrowsError(try store.save(RedPacketSettings(enabled: true, delayMilliseconds: 9999)))
         XCTAssertEqual(try Data(contentsOf: store.preferenceFileURL), before)
