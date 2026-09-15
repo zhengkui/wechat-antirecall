@@ -464,7 +464,10 @@ public:
     }
     bool eligible(const std::shared_ptr<Attempt> &a) {
         Api *api = activeApi.load();
-        return api && current == a && settings().enabled && !settings().notifyOnly && enabled.load() &&
+        // One snapshot: two settings() calls could straddle a disable and mix a
+        // stale enabled flag with a fresh notifyOnly value.
+        const auto prefs = settings();
+        return api && current == a && prefs.enabled && !prefs.notifyOnly &&
             fresh(a->created, activated.load(), static_cast<uint64_t>(std::time(nullptr))) &&
             api->account() == a->account;
     }

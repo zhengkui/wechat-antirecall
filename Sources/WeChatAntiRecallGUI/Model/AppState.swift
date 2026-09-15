@@ -418,14 +418,24 @@ final class AppState: ObservableObject {
               BundledPaths.usingBuiltFromSource else { return false }
         let stale = BundledPaths.builtDir.appendingPathComponent("wechat-antirecall")
         guard FileManager.default.isExecutableFile(atPath: stale.path) else { return false }
-        let quarantined = BundledPaths.builtDir.appendingPathComponent(
-            "wechat-antirecall.stale-schema\(reportedSchemaVersion)-\(Int(Date().timeIntervalSince1970))")
+        let suffix = ".stale-schema\(reportedSchemaVersion)-\(Int(Date().timeIntervalSince1970))"
+        let quarantined = BundledPaths.builtDir.appendingPathComponent("wechat-antirecall\(suffix)")
         do {
             try FileManager.default.moveItem(at: stale, to: quarantined)
-            return true
         } catch {
             return false
         }
+        // The source-built runtime dylib belongs to the same stale build; move it
+        // too, or "安装或更新运行组件" would keep installing the outdated dylib
+        // and the bundled CLI would keep reporting runtimeAvailable == false.
+        let staleDylib = BundledPaths.builtDir.appendingPathComponent("libWeChatAntiRecallRuntime.dylib")
+        if FileManager.default.fileExists(atPath: staleDylib.path) {
+            try? FileManager.default.moveItem(
+                at: staleDylib,
+                to: BundledPaths.builtDir.appendingPathComponent("libWeChatAntiRecallRuntime.dylib\(suffix)"))
+        }
+        usingBuiltFromSource = BundledPaths.usingBuiltFromSource
+        return true
     }
 
     private func commandFailureMessage(_ result: CLIResult, operation: String) -> String {
