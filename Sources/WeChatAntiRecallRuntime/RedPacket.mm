@@ -134,9 +134,12 @@ Settings settings() {
     @autoreleasepool {
         NSString *bundle = NSBundle.mainBundle.bundleIdentifier;
         if (!bundle.length) return {};
+        // The container plist is the one RecallTipPreferenceStore (CLI/GUI) always
+        // writes; a legacy non-container plist may predate newer keys, so it must
+        // only ever act as a fallback, never shadow the container file.
         NSArray *paths = @[
-            [NSHomeDirectory() stringByAppendingPathComponent:[NSString stringWithFormat:@"Library/Preferences/%@.plist", bundle]],
-            [NSHomeDirectory() stringByAppendingPathComponent:[NSString stringWithFormat:@"Library/Containers/%@/Data/Library/Preferences/%@.plist", bundle, bundle]]
+            [NSHomeDirectory() stringByAppendingPathComponent:[NSString stringWithFormat:@"Library/Containers/%@/Data/Library/Preferences/%@.plist", bundle, bundle]],
+            [NSHomeDirectory() stringByAppendingPathComponent:[NSString stringWithFormat:@"Library/Preferences/%@.plist", bundle]]
         ];
         for (NSString *path in paths) {
             id value = [NSDictionary dictionaryWithContentsOfFile:path][@"WeChatAntiRecall_RedPacket"];
@@ -188,7 +191,10 @@ Ledger &notifyLedger() { static Ledger value; return value; }
 // banners appear regardless of the chat's mute state (mute only gates WeChat's
 // own banner decision, which this path never consults). Best effort: an
 // unavailable center or denied authorization degrades to the os_log status.
-void notifyRedPacket(const std::string &sender, bool senderDisplay, const std::function<bool()> &stillFresh) {
+// stillFresh is taken by value: the settings/authorization completion handlers
+// outlive this call, and a block capturing a reference would capture nothing
+// that is still alive by the time they run.
+void notifyRedPacket(const std::string &sender, bool senderDisplay, std::function<bool()> stillFresh) {
     @autoreleasepool {
         UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
         if (!center) {
