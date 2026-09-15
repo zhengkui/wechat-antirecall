@@ -188,7 +188,7 @@ Ledger &notifyLedger() { static Ledger value; return value; }
 // banners appear regardless of the chat's mute state (mute only gates WeChat's
 // own banner decision, which this path never consults). Best effort: an
 // unavailable center or denied authorization degrades to the os_log status.
-void notifyRedPacket(const std::string &sender, bool senderDisplay) {
+void notifyRedPacket(const std::string &sender, bool senderDisplay, const std::function<bool()> &stillFresh) {
     @autoreleasepool {
         UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
         if (!center) {
@@ -207,11 +207,13 @@ void notifyRedPacket(const std::string &sender, bool senderDisplay) {
             requestWithIdentifier:[@"wxar-red-packet-" stringByAppendingString:NSUUID.UUID.UUIDString]
             content:content trigger:nil];
         void (^deliver)(void) = ^{
-            // The authorization round-trip can outlast a mode switch; re-check
-            // both settings on the main queue before the banner goes out.
+            // The authorization round-trip can outlast a mode switch or the
+            // freshness window; re-check both on the main queue before the
+            // banner goes out.
             dispatch_async(dispatch_get_main_queue(), ^{
                 const auto current = settings();
                 if (!current.enabled || !current.notifyOnly) return;
+                if (!stillFresh()) return;
                 [center addNotificationRequest:request withCompletionHandler:^(NSError *error) {
                     if (error) os_log_error(OS_LOG_DEFAULT, "[WeChatAntiRecall] red-packet: notification failed: %{public}@", error);
                 }];
@@ -585,7 +587,11 @@ void wechat_antirecall_red_packet_observe(void *message, int mode) {
                 if (account.empty() || packetFrom.empty() || packetTo != account ||
                     packetFrom == account || senderName == account) return;
                 if (!notifyLedger().reserve(packetId, now)) return;
-                notifyRedPacket(senderName, senderNamed);
+                // Re-evaluated inside notifyRedPacket after the authorization
+                // round-trip, which can finish long after the 60-second window.
+                notifyRedPacket(senderName, senderNamed, [created] {
+                    return fresh(created, activated.load(), static_cast<uint64_t>(std::time(nullptr)));
+                });
             });
             return;
         }
