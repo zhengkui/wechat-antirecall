@@ -207,9 +207,15 @@ void notifyRedPacket(const std::string &sender, bool senderDisplay) {
             requestWithIdentifier:[@"wxar-red-packet-" stringByAppendingString:NSUUID.UUID.UUIDString]
             content:content trigger:nil];
         void (^deliver)(void) = ^{
-            [center addNotificationRequest:request withCompletionHandler:^(NSError *error) {
-                if (error) os_log_error(OS_LOG_DEFAULT, "[WeChatAntiRecall] red-packet: notification failed: %{public}@", error);
-            }];
+            // The authorization round-trip can outlast a mode switch; re-check
+            // both settings on the main queue before the banner goes out.
+            dispatch_async(dispatch_get_main_queue(), ^{
+                const auto current = settings();
+                if (!current.enabled || !current.notifyOnly) return;
+                [center addNotificationRequest:request withCompletionHandler:^(NSError *error) {
+                    if (error) os_log_error(OS_LOG_DEFAULT, "[WeChatAntiRecall] red-packet: notification failed: %{public}@", error);
+                }];
+            });
         };
         [center getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings *status) {
             switch (status.authorizationStatus) {
