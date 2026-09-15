@@ -32,6 +32,12 @@ final class RedPacketController: ObservableObject {
             let delayMilliseconds: Int
             let notifyOnly: Bool
 
+            // A Decodable-only type with a custom init(from:) gets no synthesized
+            // CodingKeys, so they must be declared explicitly.
+            private enum CodingKeys: String, CodingKey {
+                case enabled, delayMilliseconds, notifyOnly
+            }
+
             init(from decoder: Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
                 // Older CLI builds predate notifyOnly; default to the legacy mode.
